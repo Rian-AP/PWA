@@ -2,10 +2,10 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Tv, Search, Heart, Home, Download } from "lucide-react"
+import { Tv, Search } from "lucide-react"
 import { useState } from "react"
 import { SearchModal } from "./search-modal"
-import { UserMenu } from "./user-menu"
+import { LiquidNavBar } from "./liquid-nav-bar"
 
 export function Header() {
   const pathname = usePathname()
@@ -36,41 +36,8 @@ export function Header() {
         {/* Search Modal */}
         <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
-        {/* Навигация */}
-        <nav className="flex items-center gap-1 md:gap-4 flex-shrink-0">
-          <Link
-            href="/"
-            className={`flex items-center gap-1 p-2 rounded-lg text-sm font-medium transition-colors ${
-              isActive("/") && pathname !== "/search" ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            }`}
-          >
-            <Home size={20} />
-            <span className="hidden lg:inline">Главная</span>
-          </Link>
-
-          <Link
-            href="/favorites"
-            className={`flex items-center gap-1 p-2 rounded-lg text-sm font-medium transition-colors ${
-              isActive("/favorites") ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            }`}
-          >
-            <Heart size={20} />
-            <span className="hidden lg:inline">Избранное</span>
-          </Link>
-
-          <Link
-            href="/downloads"
-            className={`flex items-center gap-1 p-2 rounded-lg text-sm font-medium transition-colors ${
-              isActive("/downloads") ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            }`}
-          >
-            <Download size={20} />
-            <span className="hidden lg:inline">Загрузки</span>
-          </Link>
-
-          {/* User Menu */}
-          <UserMenu />
-        </nav>
+        {/* Навигация - Liquid Bar */}
+        <LiquidNavBar />
       </div>
     </header>
   )

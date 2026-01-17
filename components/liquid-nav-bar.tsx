@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Home, Heart, Download } from "lucide-react"
 import { LiquidGlass } from "./ui/liquid-glass-filter"
 import { UserMenu } from "./user-menu"
+import { motion, useSpring, useMotionValue, useTransform } from "framer-motion"
 
 const ITEMS = [
   { path: "/", icon: Home, label: "Главная" },
@@ -18,13 +19,42 @@ export function LiquidNavBar() {
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Drag state
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragPos, setDragPos] = useState({ x: 0, y: 0 })
-  const [activeRect, setActiveRect] = useState<{width: number, height: number, left: number, top: number} | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
 
-  // Find active index
+  // Motion Values
+  const x = useMotionValue(0)
+  const pressed = useMotionValue(0) // 0 to 1
+
+  // Springs
+  const springX = useSpring(x, { damping: 25, stiffness: 120 })
+  const springPressed = useSpring(pressed, { damping: 20, stiffness: 300 })
+
+  // Derived values
+  const scale = useTransform(springPressed, [0, 1], [1, 1.15])
+  const boxShadow = useTransform(springPressed, (v) => {
+    // Interpolate between rest and pressed shadows
+    // User snippet: "0 4px 22px rgba(0,0,0,0.1)" (rest)
+    // Pressed: + insets
+    // We'll create a smooth transition or just simple string interp if formats match.
+    // Simpler: Just use logic inside style prop or use specific values.
+
+    // Rest: Outer glow/shadow
+    // Pressed: Stronger outer + Inset (concave feel?) or popped up?
+    // User said "pop up glass".
+    // Snippet had: "0 4px 22px ... inset ..."
+
+    const isPressed = v > 0.5
+    return isPressed
+        ? "0 4px 20px rgba(255,255,255,0.2), inset 0 0 10px rgba(255,255,255,0.1)"
+        : "0 4px 10px rgba(0,0,0,0.2), inset 0 0 0 rgba(0,0,0,0)"
+  })
+
+  // Track active rect for base position
+  const [activeRect, setActiveRect] = useState<{width: number, height: number, left: number, top: number} | null>(null)
+
+  // We need to track dragging state in JS for logic, not just motion value
+  const isDraggingRef = useRef(false)
+
   useEffect(() => {
     const idx = ITEMS.findIndex(item =>
       item.path === "/" ? pathname === "/" : pathname.startsWith(item.path)
@@ -32,7 +62,6 @@ export function LiquidNavBar() {
     if (idx !== -1) {
       setActiveIndex(idx)
     } else {
-       // If undefined path (like /profile?), set to last item (UserMenu slot)
        setActiveIndex(3)
     }
   }, [pathname])
@@ -43,12 +72,19 @@ export function LiquidNavBar() {
     if (nodes[activeIndex]) {
       const rect = (nodes[activeIndex] as HTMLElement).getBoundingClientRect()
       const containerRect = containerRef.current.getBoundingClientRect()
+      const left = rect.left - containerRect.left
+      const center = left + rect.width / 2
+
       setActiveRect({
         width: rect.width,
         height: rect.height,
-        left: rect.left - containerRect.left,
+        left: left,
         top: rect.top - containerRect.top
       })
+
+      if (!isDraggingRef.current) {
+        x.set(center)
+      }
     }
   }
 
@@ -65,123 +101,55 @@ export function LiquidNavBar() {
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!containerRef.current) return
 
-    // Check if the target is interactive (button, link)
-    // We want to allow clicking items directly.
-    // If the user clicks a button, let the button handle it.
-    // UNLESS they start dragging?
-    // Browsers handle this by: if you move enough, it's a drag/scroll.
-    // But we are implementing custom drag.
-
-    // Strategy:
-    // 1. If target is inside UserMenu (which we can identify by class or structure), do not capture pointer immediately?
-    // UserMenu renders a button.
-    const target = e.target as HTMLElement
-    const isUserMenu = target.closest('.user-menu-container')
-
-    if (isUserMenu) {
-      // If clicking user menu, don't capture pointer. Let click pass.
-      // But what if they want to drag FROM the user menu?
-      // The requirement "drag pop up glass" implies dragging the glass.
-      // If the glass is over the user menu, and I drag the glass...
-      // The glass has pointer-events: none.
-      // So I am clicking the user menu button.
-      // If I want to drag, I need to capture.
-
-      // Let's compromise:
-      // If dragging starts, we cancel the click?
-      // Or: We capture pointer ONLY if clicking "empty space" or if we detect movement?
-      // Detecting movement requires global listeners if not captured.
-
-      // Simpler: Just rely on clicking items to navigate, and only enable drag if pressing on the "bar" background?
-      // But user said "integrate into buttons... drag it".
-
-      // Solution:
-      // Capture pointer.
-      // Track start position.
-      // In pointerUp:
-      //   If distance < threshold (e.g. 5px), treat as CLICK.
-      //   If click: manually trigger the action of the item under cursor?
-      //   For UserMenu, we can find the button and `.click()` it?
-      // This emulates native behavior while keeping control.
-    }
-
-    setIsDragging(true)
+    // Capture
     containerRef.current.setPointerCapture(e.pointerId)
+    isDraggingRef.current = true
+    pressed.set(1)
 
     const rect = containerRef.current.getBoundingClientRect()
-    setDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    x.set(e.clientX - rect.left)
 
-    // Store initial pos for click detection
     containerRef.current.dataset.startX = e.clientX.toString()
     containerRef.current.dataset.startY = e.clientY.toString()
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || !containerRef.current) return
+    if (!isDraggingRef.current || !containerRef.current) return
 
     const rect = containerRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    setDragPos({ x, y })
+    x.set(e.clientX - rect.left)
   }
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDragging || !containerRef.current) return
-    setIsDragging(false)
+    if (!containerRef.current) return
+    isDraggingRef.current = false
+    pressed.set(0)
     containerRef.current.releasePointerCapture(e.pointerId)
 
     const startX = parseFloat(containerRef.current.dataset.startX || "0")
     const startY = parseFloat(containerRef.current.dataset.startY || "0")
     const dist = Math.sqrt(Math.pow(e.clientX - startX, 2) + Math.pow(e.clientY - startY, 2))
 
-    // If it was a click (short distance)
+    // Click Handling
     if (dist < 5) {
-      // It's a click.
-      // We need to trigger the underlying element if we prevented default?
-      // Pointer capture swallows mouse events for children?
-      // "implicit pointer capture" implies target receives events.
-      // "setPointerCapture" redirects all events to container.
-      // So the child button will NOT receive 'click'.
-
-      // We must manually trigger the action.
-      // Find what was under the pointer?
-      // Or just look at what index we are at?
-
-      // Hit testing
-      const rect = containerRef.current.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const nodes = containerRef.current.querySelectorAll('.nav-item')
-
-      // Find closest item is good, but for click we want exact hit.
-      // Or we can rely on `e.target` from `pointerDown`? No, we need where we released.
-      // `document.elementFromPoint`?
-
-      // Let's use the closest logic which we already have.
-      // But for UserMenu, we need to click the actual trigger button to open the menu.
-      // Because UserMenu state is internal (Radix UI).
-
       const targetElement = document.elementFromPoint(e.clientX, e.clientY)
       if (targetElement) {
-        // If it's inside a button, click it.
         const btn = targetElement.closest('button')
         if (btn) {
             btn.click()
-            return // Don't do router push logic if we clicked a button
+            return
         }
-        // If it's inside a link (the other items), click it.
         const link = targetElement.closest('a')
         if (link) {
             link.click()
             return
         }
       }
-      // If we clicked background, do nothing or closest?
-      // Fallback to closest logic below.
     }
 
-    // Drag Logic (Drop)
+    // Drop / Snap Logic
     const rect = containerRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
+    const currentX = e.clientX - rect.left
 
     const nodes = containerRef.current.querySelectorAll('.nav-item')
     let closestIndex = activeIndex
@@ -190,7 +158,7 @@ export function LiquidNavBar() {
     nodes.forEach((node, idx) => {
       const nodeRect = (node as HTMLElement).getBoundingClientRect()
       const nodeCenterX = (nodeRect.left - rect.left) + nodeRect.width / 2
-      const dist = Math.abs(x - nodeCenterX)
+      const dist = Math.abs(currentX - nodeCenterX)
       if (dist < minDist) {
         minDist = dist
         closestIndex = idx
@@ -201,17 +169,16 @@ export function LiquidNavBar() {
       if (closestIndex < ITEMS.length) {
         router.push(ITEMS[closestIndex].path)
       } else {
-        // UserMenu slot.
-        // If dragged here, what happens?
-        // Just move the glass cursor.
         setActiveIndex(closestIndex)
-        // Optionally open menu? No, that's annoying.
       }
+    } else {
+        if (activeRect) {
+            const center = activeRect.left + activeRect.width / 2
+            x.set(center)
+        }
     }
   }
 
-  const glassX = isDragging ? dragPos.x : (activeRect ? activeRect.left + activeRect.width / 2 : 0)
-  const glassY = isDragging ? dragPos.y : (activeRect ? activeRect.top + activeRect.height / 2 : 0)
   const glassSize = 60
 
   return (
@@ -226,7 +193,6 @@ export function LiquidNavBar() {
       role="tablist"
       aria-label="Main Navigation"
     >
-      {/* Semantic Links */}
       {ITEMS.map((item, idx) => {
         const isActive = idx === activeIndex
         return (
@@ -244,7 +210,6 @@ export function LiquidNavBar() {
         )
       })}
 
-      {/* User Menu Slot */}
       <div
         className={`nav-item user-menu-container flex items-center justify-center min-w-[3rem] h-12 rounded-full z-0 ${activeIndex === 3 ? 'text-primary' : ''}`}
         role="tab"
@@ -255,16 +220,17 @@ export function LiquidNavBar() {
         </div>
       </div>
 
-      {/* Liquid Glass Cursor */}
-      <div
-        className="absolute pointer-events-none transition-all duration-75 ease-out z-10 rounded-full border border-white/20 bg-white/5 shadow-[0_0_15px_rgba(255,255,255,0.2)]"
+      <motion.div
+        className="absolute pointer-events-none z-10 rounded-full border border-white/20 bg-white/5"
         style={{
-          left: glassX - glassSize / 2,
-          top: glassY - glassSize / 2,
           width: glassSize,
           height: glassSize,
+          top: "50%",
+          y: "-50%",
+          x: useTransform(springX, (val) => val - glassSize / 2),
+          scale: scale,
+          boxShadow: boxShadow,
           opacity: activeRect ? 1 : 0,
-          transform: isDragging ? 'scale(1.15)' : 'scale(1)',
         }}
         aria-hidden="true"
       >
@@ -277,7 +243,7 @@ export function LiquidNavBar() {
           className="w-full h-full rounded-full"
           blur={2}
         />
-      </div>
+      </motion.div>
     </nav>
   )
 }
